@@ -1,0 +1,1205 @@
+Description: Improvements to netselect in Debian
+ Improvements introduced to netselect in Debian including the following:
+
+  * netselect-apt:
+     - debian/control: Add ca-certificates as a dependency as it is required
+       to validate Debian's certificates. Otherwise the wget call will fail
+       when accessing www.debian.org as it now redirects from http to https
+       (Closes: #999711)
+     - Add the Debian releases which were missing: buster, bullseye, bookworm
+       and trixie
+     - Move the code of checking root permissions after the parsing of options
+       to allow the --help option to be run without being root
+       (Closes: #768568)
+     - Fix bug that makes it output some hosts with negative value (Closes: 920907)
+     - Fix bug in the Pelr parsing which prevented it from processing properly
+      the mirrors listed in the Debian website (Closes: 989674)
+     - Add 'stretch' (current testing) as a valid codename for a release
+     - Add 'jessie' to netselect to make it possible to search mirrors
+       of that codename (Closes: #713838)
+     - Ignore corrupted results (negative score) and throw them out.
+       Netselect does not handle gracefully mirrors which use
+       a Round Robin DNS (see bug #755238).
+       The fix prevents netselect-apt from selecting mirrors with a '-'
+       in some cases (Closes: #750952)
+     - Return with an error in test_host if curl is not available or
+       if an empty host is provided (as suggested by doekia in #750952)
+     - Fix minor typos spotted by Cyril Brulebois
+     - modify regular expression to parse newest mirrors list with
+       rel="nofollow" in href links. Thanks to "Nameless" for the patch
+       (Closes: #667985, #665876)
+     - more verbose output when netselect-apt fails indicating possible causes
+       of errors
+     - Add a -d (debug) option as well as logging if debug is enabled
+     - Extend the host validation routine by making netselect-apt download
+       the 'README' file in the remote server and have it check if the
+       contents there are what one would expect of a Debian mirror.
+     - Fix the parsing of the -t option
+     - Ensure that the netselect options are defined *after* the command line
+       parsing to make it possible to modify them through the command line.
+     - Add a -c option to make it possible to filter by country (Closes: #273688)
+     - Do not settle for only one server as indicated by netselect but, instead,
+      retrieve the top-10 hosts (configurable through a '-t' option) and select
+      the fastest hosts which can be accessed through the defined protocol.
+      Tests are done using curl, and ensure that the hosts HTTP or FTP requests.
+      This makes use of the '-s' option in netselect in a way similar to
+      what was requested in #117265. The fastests servers are listed
+      in addition to the server chosen after verifying they are reachable
+      (Closes: #117265)
+     - Make the script more robust by having it check and detect some common
+       issues when running netselect:
+       *  No hosts are found to use with netselect, due to an incorrect file
+       being provided or an error when downloading the mirror list, or,
+       *  Netselect does not return any host to netselect-apt
+       Now the script will at least abort with a (hopefully useful)
+       error message instead of writing a useless sources.list
+       (Closes: 238888)
+     - Use the -D option (see above) by default so that the information
+       introduced is always a name and not an IP address as many Debian
+       servers use DNS round robin and the servers cannot be accessed
+       using an IP address (Closes: 420252)
+     - Use dpkg-architecture if available, otherwise fall back to
+        "dpkg --print-architecture" instead (Closes: 609342)
+     - Add 'wheezy' as a valid distribution (Closes: 623180)
+     - Introduce a way to provide options to netselect through -O
+     - Check if netselect exists
+     - Abort if not being run as root and netselect is not setuid
+     - Use -I per default as many debian mirrors do not actually allow
+       traceroute tests
+     - Only use standard output when parsing netselect's output, stderr
+       gets thrown out as we do not need it (but the user might have
+       set it with -v calls in -O)
+     - Stricter filtering of netselect output to prevent picking up
+       wrong data by mistake
+     - Anchor regexp to exclude non-us/debian-volatile mirrors (Closes:
+       #518334)
+     - Remove non-us generation
+     - Use a temporary file instead of mirrors_full by default and put a note
+       in NEWS (Closes: #466721)
+
+  * netselect:
+     - Fix an alignment bug in netselect.c, the struct icmp might be
+     padded to a 64 byte boundary leaving the ICMP_TYPE filled in by 0s
+     (ICMP_REPLY). Thanks for Dan Merillat for the patch (Closes: 645703)
+      - Add a new -D option to force netselect to provide, if required,
+        the DNS names for hosts that resolve to multiple IP addresses.
+        Modify the code so that the dnsname is kept on the host struct
+        and printed, if this option is used, when netselect finishes.
+        (Closes: #136849)
+      - Notify through stderr if the number of hosts found are (at least)
+        the number of hosts and also return with error 1 if no hosts
+        are found. This helps clarify the situation when all the probed
+        hosts are considered invalid and no one is returned (Closes: 467303)
+      - Implement a -I option to make netselect use ICMP probes instead of UDP.
+        This option is useful to test servers when there is some element
+        that does not allow traceroute tests in the intermediate path
+        (including the local computer, through it's firewall).
+        (Closes: 601227, 217256, 384218)
+      - Do not printout verbose messages detailing hosts to stdout but
+        to stderr
+
+   ( and other fixes, see the debian/changelog file)
+
+   Not all of the changes have been added upstream. Last import of Debian
+   patches was done of patches in version 12.1 (see
+   https://github.com/apenwarr/netselect/commit/ef658e211c746464ed4440091627af467f992a43)
+   Consequently, we are marking this patchs as not applied upstream fully.
+Author: Javier Fernández-Sanguino Peña <jfs@debian.org>
+Origin: vendor
+Applied-Upstream: no
+Last-Update: 2025-01-09 
+---
+This patch header follows DEP-3: http://dep.debian.net/deps/dep3/
+--- a/Makefile
++++ b/Makefile
+@@ -20,23 +20,26 @@
+ 
+ netselect: netselect.o
+ 	${CC} ${LDFLAGS} -o $@ $^ ${LIBS}
++
++
++install: $(PROG)
++	
+ ifdef OS2
+ 	emxbind -bwq netselect
+ else
+-	-sudo chown root netselect && sudo chmod u+s netselect
++	chown root netselect && chmod u+s netselect
+ endif
+-
+-install: $(PROG)
++	
+ 	-install -d ${BINDEST}
+-	#-install -d ${MANDEST}
+-	install $(STRIP) -o root -g root -m 4755 \
++	-install -d ${MANDEST}
++	install -o root -g root -m 4755 \
+ 		netselect${BINSUFFIX} ${BINDEST}
+ 	install -o root -g root -m 0755 netselect-apt ${BINDEST}
+-	#install -o root -g root -m 0644 netselect.8 ${MANDEST}
+ 
++	
+ uninstall:
+ 	$(RM) ${BINDEST}/netselect${BINSUFFIX} ${BINDEST}/netselect-apt
+-	$(RM) ${MANDEST}/netselect.8
+ 
+ clean:
+ 	$(RM) netselect netselect${BINSUFFIX} *.o *~ build-stamp core
++	$(RM) mirrors_full
+--- a/README
++++ b/README
+@@ -36,10 +36,8 @@
+ nothing got through at all.  That indicates that either the host doesn't
+ exist, or it is down.
+ 
+-For a bigger example, I've included the file debian-ftp-mirrors, which is a
+-partially up-to-date list of Debian Linux FTP site mirrors.  Try this:
+-
+-	netselect -vvv $(cat debian-ftp-mirrors)
++For a bigger example, try netselect-apt to build your own sources.list for apt
++with the (possibly) fastest debian mirror.
+ 
+ 
+ But Why?
+@@ -53,7 +51,7 @@
+ its scoring mechanism.  If you want, however, you can still pass the raw
+ results and score the servers as you like.  Try this, for example:
+ 
+-	netselect -vv -s 0 $(cat debian-ftp-mirrors)
++	netselect -vv -s 0 $(cat <your_list_of_sites>)
+ 	
+ The "-s 0" option disables printing of scores at the bottom of the list, and
+ "-vv" enables printing of the statistics.
+@@ -103,6 +101,9 @@
+ 	-vvv	-- very very verbose mode.  Everything -vv prints, plus
+ 		   print every packet received as it happens.  Good for
+ 		   debugging or trying to figure out how it works.
++	
++	-vvvv   -- very very very verbose mode. Everything -vvv prints,
++		   plus a trace of all packets sent.
+ 		   
+ 	-m #	-- maximum ttl.  Don't accept hosts with more hops than
+ 		   this.
+@@ -133,4 +134,4 @@
+ This program is highly experimental.  Please let me know what you think.
+ 
+ 	- Avery Pennarun
+-	  <apenwarr@worldvisions.ca>
++	  <apenwarr@gmail.com>
+--- a/netselect-apt
++++ b/netselect-apt
+@@ -1,10 +1,12 @@
+ #!/bin/bash
+ #
+ # A script to create an apt sources.list file automatically by downloading
+-# the list of Debian mirrors and choosing the fastest main and non-us server
+-# using netselect.
++# the list of Debian mirrors and choosing the fastest using netselect.
+ #
+-# Author: Avery Pennarun <apenwarr@debian.org>
++# Author: Avery Pennarun <apenwarr@gmail.com>
++# Enhancements:
++#    - Filippo Giunchedi <filippo@esaurito.net>
++#    - Javier Fernandez-Sanguino <jfs@debian.org>
+ #
+ # License: public domain.  Please feel free to improve this script.  It
+ # doesn't really belong in the netselect package, particularly since the
+@@ -13,93 +15,442 @@
+ # please do.  Then tell me, so I can remove it from the netselect package.
+ #
+ # TO DO:
+-#   - parse command line options for output file, input files, etc.
+-#   - have some way to pass options (especially -t) to netselect.
+ #   - test the generated files automatically.  Some mirrors in the list
+ #       are broken.  We should at least verify that the Packages and Sources
+ #       files exist and aren't ancient.
+ #   - maybe generate redundant entries, in case one server is missing files?
+-#
+-#
+ 
+-URL="http://www.debian.org/mirror/mirrors_full"
+-DISTRO="$1"
++# our defaults
++# RATIONALE for WANT_SOURCES and WANT_NONFREE environmental variables:
++# both variables can be system wide and can be useful to not always specify
++# them on the commandline
++
++want_sources=${WANT_SOURCES:-0}
++want_nonfree=${WANT_NONFREE:-0}
++want_security=1
++infile=""
++tmpinfile="1"
++# File to generate
++outfile="sources.list"
++# Default distribution
++distro="stable"
++# Default protocol
++protocol="http"
++# Number of fastest hosts that will be validated
++test_hosts="10"
++# URL where the mirror list is retrieved from 
++url="http://www.debian.org/mirror/mirrors_full"
++# Test file retrieve from sites to valide
++test_file="README"     
++# Country used to filter the list
++country=""
++# Debug mode?
++DEBUG=""
++if [ -x /usr/bin/dpkg-architecture ] ; then
++    arch=$(/usr/bin/dpkg-architecture -qDEB_HOST_ARCH)
++else
++    arch=$(dpkg --print-architecture)
++fi
+ 
++options="-o a:dsi:o:O:t:c:nfhu -l arch:,debug,sources,infile:,outfile:,tests:,country:,nonfree,ftp,help"
++
++trap '[ "$tmpinfile" = "1" ] && rm -f "$infile"' TERM INT EXIT
++
++# misc functions
+ log()
+ {
+ 	echo "$@" >&2
+ }
+ 
++# tests a list of hosts and returns a (filtered) list of those
++# that you can connect to using a defined protocol
++tests_hosts()
++{
++    local host_list="$*"
++    local host_filtered=""
++    [ -n "$DEBUG" ] && log "DEBUG: Filtering host list is $host_list"
++    # Do not continue if curl is not installed 
++    [ ! -x /usr/bin/curl  ] && echo $host_list 
++    host_filtered=""
++    for host in $host_list; do
++# Test using curl
++        [ -n "$DEBUG" ] && log "DEBUG: Testing host $host with curl"
++        test_host $host
++        if [ $? -eq 0 ]; then
++            [ -n "$DEBUG" ] && log "DEBUG: Host $hot is ALIVE"
++            if [ -z "$host_filtered" ] ; then
++                host_filtered="$host"
++            else
++                host_filtered="$host_filtered $host"
++            fi
++        fi
++    done
++    [ -n "$DEBUG" ] && log "DEBUG: Filtered host list is $host_filtered"
++    echo $host_filtered
++}
++
++validate_hosts()
++{
++    for host in $*; do
++        [ -n "$DEBUG" ] && log "DEBUG: Testing host $host with curl"
++        test_host $host
++        if [ $? -eq 0 ]; then
++            [ -n "$DEBUG" ] && log "DEBUG: Host $host is valid"
++            echo $host
++            return 0
++            # We return as soon as we have a valid host since netselect
++            # returns them in order (fastest to slowest)
++        fi
++        [ -n "$DEBUG" ] && log "DEBUG: Host $host is INVALID"
++    done
++    return -1
++}
++
++# Test a single host using Curl, if available
++test_host()
++{
++    local host="$1"
++    local rv=0
++    [ ! -x /usr/bin/curl  ] && return 255
++    [ -z "${host}" ]        && return 255
++
++    # First test: does it actually serve anything?
++    curl -m 2 -q -s "$host"  >/dev/null 2>&1
++    [ $? -ne 0 ] && return $?
++
++    # Second test: do we have the test file we are looking for?
++    [ -n "$DEBUG" ] && log "DEBUG: Checking if the file '$test_file' is available in site"
++    temp=`mktemp`
++    [ ! -e "$temp" ] && return 0 # Return without error if we cannot create
++                                 # a temporary file
++    curl -m 2 -q -s "$host/$test_file"  >$temp 2>&1
++    rv=$?
++    if [ $rv -ne 0 ] ; then
++        rm -f $temp
++        return $rv
++    fi
++
++    # Third test: does the file have any reference to 'Debian'
++    [ -n "$DEBUG" ] && log "DEBUG: Checking the contents of the '$test_file' file (downloaded to '$temp')"
++    grep -qi debian $temp 
++    rv=$?
++    if [ $rv -ne 0 ] ; then
++        rm -f $temp
++        return $rv
++    fi
++    # Fourth test: does it have the content we expected
++    head -1 $temp | grep -qi "See http://www.debian.org/"
++    rv=$?
++    if [ $rv -ne 0 ] ; then
++       rm -f $temp
++        return $rv
++    fi
++
++    # All tests completed succesfully, remove temporary file and exit
++    [ -e "$temp" ] && rm -f $temp
++    return 0
++}
++
+ run_netselect()
+ {
+ 	SEARCH="$1"
++	PROTO="$2"
++        hosts=$(cat "$infile" \
++               | perl -n -e '
++                        use warnings;
++                        use strict;
++			$/="<br><br>";
++                        my $country_name  = ".*";
++                        my $country_iso  = "..";
++                        my $country = "'"$country"'";
++                        my $my_country = 1;
++                        if ( $country ne "" ) {
++                          $my_country = 0;
++                          if ( $country =~ /^\w{2}$/ ) {
++                            $country_iso  = uc($country);
++                            $country_name = "";
++                          }  else {
++                            $country_iso  = "";
++                            $country_name = ucfirst(lc($country));
++                          } ;
++                        }
++			while(<>){
++                                if ( /<h3><a name="$country_iso">/ ||
++                                     /<h3><a name=".*?">$country_name<\/a>/ ) {
++                                    $my_country = 1 ;
++                                }
++                                if ( $_ =~ /<h3>/ && $_ !~ /<h3><a name="$country_iso">/ &&
++                                     $_ !~ /<h3><a name=".*?">$country_name<\/a>/ ) {
++                                    $my_country = 0 ;
++                                }
++				next if $_ !~ /Site:/;
++				if( ( /Includes architectures:.+'"$arch"'.+/i ||
++						$_ !~ /Includes architectures:/ ) &&
++                                               m@'"$SEARCH"':.*<a.*?href="('"$PROTO"'://.*?)">@i && $my_country == 1
++					){
++					print("$1\n");
++				}}')
++        [ -z "$hosts" ] && return 200
++        [ -n "$DEBUG" ] && log "DEBUG: Running netselect: 'netselect $netselect_options $hosts'"
++	out=`netselect $netselect_options  $hosts`
++	rv=$?
++	# Throw away hosts with negative scores to workaround a netselect bug.
++	# (netselect 0.3.ds1-25 seems to have problems pinging round-robin DNS)
++	corruptedhosts=$(echo "$out" | egrep '^ *-')
++	if [ $? -eq 0 ]; then
++		log "Detected corrupt scores from bug in netselect: $corruptedhosts"
++		out=$(echo "$out" | sed -e '/^ *-/d')
++	fi
+ 
+-	netselect -v -s 1 $(cat mirrors_full \
+-	    | perl -n -e '
+-	    	if (m{^'"$SEARCH"':.*<a href="(http://.*?)">}) {
+-			print("$1\n");
+-		}') \
+-	    | awk '{print $2}'
++
++	# Remove the score number leaving just the host.
++        echo $out | sed -e 's/[0-9]\+\s\+/ /g'
++	return $rv
+ }
+ 
+-if [ -z "$1" ]; then
+-	log "You didn't provide a distribution name (usually 'stable', "
+-	log "'testing', or 'unstable') on the command line.  We'll use "
+-	log "'stable' by default."
+-	log
+-	DISTRO=stable
++netselect_generic_error()
++{
++	log "netselect was unable to find a mirror, this probably means that"
++	log "you are behind a firewall and it is blocking ICMP and/or"
++        log "UDP traceroute. Or the servers test are actively blocking"
++        log "ICMP and/or UDP traceroute probes."
++}
++
++netselect_permission_error()
++{
++	log "netselect was unable to operate successfully, please check the errors,"
++	log "most likely you don't have enough permission."
++}
++
++netselect_parse_error ()
++{
++    
++	log "netselect-apt was unable to obtain a list of valid hosts from"
++        if [ "$tmpinfile" = "0" ] ;then
++            log "the file provided ($infile)."
++        else
++            log "the file downloaded from the url '$url'."
++        fi
++        if [ -n "$country" ] ; then
++            log "You told the program to only look for hosts in country '$country' "
++            log "and there might no mirrors to chose from that country. Remove the "
++            log "option -c and try again."
++        else
++            log "This might happen because of any of the following reasons: "
++            log "   - there was an error in the file "
++            log "   - the file is not in the format netselect-apt expected "
++            log "   - there is a bug in netselect-apt "
++            log "Please manually check the file. If you believe its contents are correct, file "
++            log "a bug (hint: use 'reportbug') against netselect-apt and provide the file as "
++            log "well as the output generated by the program (hint: use 'script')."
++        fi
++}
++
++netselect_aborted_error ()
++{
++	log "netselect aborted before it was able to find a mirror."
++}
++
++
++
++# NOTE: The list of releases is based on the content available
++# at https://wiki.debian.org/DebianReleases and https://www.debian.org/doc/manuals/debian-faq/ftparchives
++
++usage()
++{
++	log "Usage: netselect-apt [OPTIONS] [ debian_release ]"
++	log "       debian_release is one of stable, testing, unstable, experimental"
++	log "       or a codename etch, lenny, squeeze, wheezy, jessie, stretch, buster,"
++        log "       bullseye, bookworm, trixie, forky, sid"
++	log "Options:"
++	log "   -a, --arch ARCH        Use mirrors containing arch ($arch)"
++	log "   -s, --sources          Include deb-src lines in generated file (no)"
++	log "   -i, --infile INFILE    Use INFILE as the input file (temp file)"
++	log "   -o, --outfile OUTFILE  Use OUTFILE as the output file (sources.list)"
++	log "   -n, --nonfree          Use also non-free packages and firmware in OUTFILE (no)"
++	log "   -f, --ftp              Use FTP as the protocol for OUTFILE (http)"
++	log "   -t, --tests #          Number of hosts to test ($test_hosts)"
++	log "   -c, --country COUNTRY  Restrict search to servers in that country"
++	log "   -d, --debug            Enable debugging"
++}
++
++# Sanity tests
++NETSELECT=`which netselect`
++# Does netselect exist?
++if [ -z "$NETSELECT" ] ; then
++    log "Sorry, I cannot find the 'netselect' binary in my PATH"
++    exit 1
++fi
++
++# commandline parsing
++# TODO: We should do some sanity checking of some values
++# (such as test_hosts to ensure it is a number > 1)
++temp=$(getopt $options -n 'netselect-apt' -- "$@")
++if [ $? != 0 ]; then echo "Terminating..." >&2; exit 2; fi
++eval set -- "$temp"
++while true; do
++	case "$1" in
++		-a|--arch) arch=$2; shift 2 ;;
++		-s|--sources) want_sources=1; shift ;;
++		-i|--infile) infile="$2"; tmpinfile="0"; shift 2 ;;
++		-o|--outfile) outfile="$2"; shift 2 ;;
++		-O) netselect_options="$netselect_options $2"; shift 2 ;;
++		-n|--nonfree) want_nonfree=1; shift ;;
++		-c|--country) country=$2; shift 2 ;;
++		-t|--tests) test_hosts=$2; shift 2 ;;
++		-f|--ftp) protocol="ftp"; shift ;;
++		-d|--debug) DEBUG=1; shift ;;
++		-h|--help) usage; exit 0;;
++		--) shift; break;;
++		*) echo "Internal Error!"; echo "args: $@"; exit 1;;
++	esac
++done
++
++# Are we root?
++# (Check after options to allow for --help without root)
++if [ "`id -u`" -gt 0 ] ; then
++# If we are not, is netselect setuid?
++    if [ ! -u "$NETSELECT" ] ; then
++        log "Sorry, you need to be root to run $0 since the netselect"
++        log "binary we will use ($NETSELECT) is not setuid."
++        exit 1
++    fi
+ fi
+ 
+-if [ ! -f mirrors_full -a ! -e /usr/bin/wget ]; then
++
++# Default netselect options
++netselect_options="-D -I -v -s $test_hosts"
++# The '-s number' option can be used to display the top 'number' best
++# hosts. This is useful for finding the best host to use in a sources.list file
++# that is shared between several hosts on different networks in the same
++# geographical location. For example, it would be better to choose a host that
++# is #2 on all hosts than #1 on one host but is #50 on all the rest.
++
++# distro is a non-option for backward compatibility
++case "$1" in
++	# don't forget to update the usage with new codenames
++	stable|testing|unstable|experimental|etch|lenny|squeeze|wheezy|jessie|stretch|buster|bullseye|bookworm|trixie|forky|sid) distro="$1" ;;
++	'') ;;
++	*) log "Invalid distribution: $1"; exit 1 ;;
++esac
++
++if [ "$distro" != "stable" ]; then
++	want_security=0
++fi
++
++# netselect starting
++log "Using distribution $distro."
++
++if [ "$tmpinfile" = "0" -a ! -f "$infile" -a ! -x /usr/bin/wget ]; then
+ 	log "Sorry, this script requires the 'wget' package in order to run."
+-	log "You can also download the mirrors list yourself and leave it"
+-	log "in the current directory:"
+-	log "        $URL"
+-	exit 1
++	log "You can also download the mirrors list yourself and pass it"
++	log "with -i option, consult the manpage for further details:"
++	log "        $url"
++	exit 2
+ fi
+ 
+-if [ ! -f mirrors_full ]; then
++if [ ! -f "$infile" ]; then
++	if [ "$tmpinfile" = "1" ]; then
++		infile=$(mktemp -t netselect-apt.XXXXXX) ||
++			{ log "unable to create tempfile"; exit 2; }
++	fi
++
+ 	log "Retrieving the list of mirrors from www.debian.org..."
+ 	log
+ 
+-	if ! wget "$URL"; then
+-		log "$0: wget failed.  Please try to correct the problem"
+-		log "by reading the wget messages printed above."
++	if ! /usr/bin/wget -O "$infile" "$url"; then
++		log "$0: wget failed to retrieve $url."
++                log "Please try to correct the problem by reading the wget "
++                log " messages printed above."
+ 		exit 2
+ 	fi
+ else
+-	log "There is a already a mirrors_full file in the current"
+-	log "directory.  I'll use that, rather than downloading it again."
++	log "$infile has been found."
++	log "I'll use that, rather than downloading it again."
+ 	log
+ fi
+ 
+ log "Choosing a main Debian mirror using netselect."
+-MAIN=$(run_netselect "Packages over HTTP")
+-log "The fastest server seems to be:"
+-log "        $MAIN"
+-log
+-
+-log "Choosing a non-US Debian mirror using netselect."
+-NON_US=$(run_netselect "Non-US packages over HTTP")
+-log "The fastest non-US server seems to be:"
+-log "        $NON_US"
+-log
++if [ -n "$country" ]; then
++    log "(will filter only for mirrors in country $country)"
++fi
++# Convert Search string to uppercase as it is used in the website
++search_string="Packages over ${protocol^^}"
++hosts_netselect=$(run_netselect "$search_string" $protocol)
++netselect_rv=$?
++if [ $netselect_rv -eq 0 ] ; then
++        if [ ! -z "$hosts_netselect" ] ; then
++            if [ "$test_hosts" -gt 1 ]; then
++                log "The fastest $test_hosts servers seem to be:"
++                echo "$hosts_netselect" | sed -e 's/\s\+/\n\t/g'
++                log
++            else
++                log "The fastest server seems to be:"
++                log "          $hosts_netselect"
++                log
++            fi
++            main=$(validate_hosts $hosts_netselect)
++            if [ ! -z "$main" ] ; then
++                    if [ "$test_hosts" -gt 1 ]; then
++                        log "Of the hosts tested we choose the fastest valid for $protocol:"
++                        log "        $main"
++                        log
++                    else
++                        log "and is a valid server for $protocol."
++                    fi
++            else
++                    log "No valid servers were found that could be reachable"
++                    log "through $PROTO. Netselect found these hosts to be "
++                    log "closest to you, but we could not connect to any "
++                    log "of them using that protocol."
++                    exit 2
++            fi
++        else
++	    netselect_generic_error
++            exit 2
++        fi
++elif [ $netselect_rv -eq 6 ]; then
++	netselect_permission_error
++	exit 2
++elif [ $netselect_rv -eq 130 ]; then
++	netselect_aborted_error
++	exit 2
++elif [ $netselect_rv -eq 200 ]; then
++	netselect_parse_error
++	exit 2
++else
++	netselect_generic_error
++	exit 2
++fi
+ 
+-log "Writing the sources.list in the current directory."
++log "Writing $outfile."
+ 
+-rm -f sources.list
++if [ -f "$outfile" ]; then
++	destfile="$outfile.$(date +%s)"
++	log "$outfile exists, moving to $destfile"
++	mv $outfile $destfile
++fi
++
++sections="main contrib"
++if [ "$want_nonfree" -eq 1 ]; then sections="$sections non-free non-free-firmware"; fi
+ 
+ (
+-	echo "# the main Debian packages.  Uncomment the deb-src line if you"
+-	echo "# want 'apt-get source' to work with most packages."
+-	echo "deb $MAIN $DISTRO main contrib non-free"
+-	echo "# deb-src $MAIN $DISTRO main contrib non-free"
+-	
++	echo "# Debian packages for $distro"
++	echo "deb $main $distro $sections"
++	echo "# Uncomment the deb-src line if you want 'apt-get source'"
++	echo "# to work with most packages."
++	if [ "$want_sources" -eq 0 ]; then
++		echo -n "# "
++	fi
++	echo "deb-src $main $distro $sections"
++
+ 	echo
+-	echo "# the non-US Debian packages.  Uncomment the deb-src line if you"
+-	echo "# want 'apt-get source' to work with non-US packages."
+-	echo "deb $NON_US $DISTRO/non-US main contrib non-free"
+-	echo "# deb-src $NON_US $DISTRO/non-US main contrib non-free"
+-) >sources.list
++	echo "# Security updates for stable"
++	if [ "$want_security" -eq 0 ]; then
++		echo -n "# "
++	fi
++	echo "deb http://security.debian.org/ stable-security $sections"
++
++) > $outfile
+ 
+ echo "Done."
+--- a/netselect.c
++++ b/netselect.c
+@@ -1,6 +1,7 @@
+ /*
+  * Netselect:
+- *      Copyright (c) 1998-2001 by Avery Pennarun <apenwarr@worldvisions.ca>
++ *      Copyright (c) 1998-2001 by Avery Pennarun <apenwarr@gmail.com>
++ *
+  *
+  * Traceroute:
+  * Copyright (c) 1990, 1993
+@@ -87,14 +88,32 @@
+     struct timeval tv;		/* time packet left */
+ } OPacket;
+ 
++/*
++ * format of a (icmp) probe packet.
++ */
++typedef struct
++{
++    struct ip ip;
++    struct icmp icmp;
++    u_char seq;			/* sequence number of this packet */
++    u_char ttl;			/* ttl packet left with */
++    struct timeval tv;		/* time packet left */
++}__attribute__((packed)) IPacket;
++
++
+ 
+ /* 
+  * currently-known information about a host
+  */
+ typedef struct
+ {
+-    char *hostname;		/* hostname as provided on command line */
++    char *hostname;		/* hostname as provided on command line 
++                                 * or host IP address if we get multiple IPs
++                                 * for a name */
+     char *shortname;		/* hostname with any URL-type stuff removed */
++    char *dnsname;		/* DNS name of the host, matches hostname
++                                 * unless a host resolves to multiple IP
++                                 * addresses */
+     struct sockaddr_in addr;	/* remote address */
+ 
+     int invalid;		/* !=0 if we discard this host */
+@@ -114,7 +133,7 @@
+ /* prototypes for functions in this file */
+ static HostData *add_host(HostData *host, int *numhosts,
+ 			  char *hostname, struct sockaddr_in *addr,
+-			  int max_ttl);
++                          char *dnsname, int max_ttl);
+ static char *un_url(char *orig);
+ static char *fix_url(char *orig, char *hostname);
+ static HostData *name_resolver(int *numhosts, int numnames, char **names,
+@@ -122,6 +141,8 @@
+ 
+ static void send_probe(int seq, int ttl, OPacket *op,
+ 		       HostData *host);
++static void send_icmp_probe(int seq, int ttl, IPacket *op,
++		       HostData *host);
+ static time_t deltaT(struct timeval *t1p, struct timeval *t2p);
+ static HostData *wait_for_reply(HostData *hosts, int numhosts,
+ 				       int sock, int msec_timeout);
+@@ -130,7 +151,7 @@
+ 				  struct sockaddr_in *from);
+ static int choose_ttl(HostData *host);
+ static void usage();
+-static void results(HostData *hosts, int numhosts, int num_score);
++static int results(HostData *hosts, int numhosts, int num_score, int use_dns);
+ static int host_score(HostData *host);
+ 
+ #define INPACKET_SIZE    512
+@@ -151,18 +172,30 @@
+     extern char *optarg;
+     extern int optind;
+     int hostcount, startcount, endcount = 0, sent_one, lag, min_lag = 100;
+-    int ch, seq, ttl, max_ttl = 30, min_tries = 10, num_score = 1;
++    int ch, seq, ttl, max_ttl = 30, num_score = 1;
++    int use_icmp, use_dns, found = 0;
++    unsigned int min_tries = 10;
+     struct timeval now;
+     struct timezone tz;
+-    OPacket outpacket;          /* last output (udp) packet */
++    OPacket udppacket;          /* last output (udp) packet */
++    IPacket icmppacket;          /* last output (udp) packet */
++    
+     HostData *host, *hosts;
+     int numhosts, delay, must_continue, count;
++    int socket_errno = 0;
++
++    /* we might have cap_net_raw on linux, instead print a tip if and when
++       sendto fails
++    if (geteuid () != 0)
++        fprintf (stderr, "%s: root privileges required\n", argv[0]);
++    */
+ 
+     if ((rcvsock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) < 0
+      || (sndsock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW )) < 0)
+     {
+-	perror("netselect: socket");
+-	return 5;
++	/* Capture errno so that command-line options can be parsed.
++	   We delay reporting an error until this has happened. */
++	socket_errno = errno;
+     }
+ 
+     /* drop root privileges as soon as possible! */
+@@ -173,7 +206,7 @@
+ #ifdef __EMX__
+     _response(&argc,&argv);
+ #endif
+-    while ((ch = getopt(argc, argv, "s:t:m:v?")) != EOF)
++    while ((ch = getopt(argc, argv, "s:t:m:IDv?")) != EOF)
+     {
+ 	switch (ch)
+ 	{
+@@ -199,6 +232,14 @@
+ 	    }
+ 	    break;
+ 
++	case 'I':
++            use_icmp = 1;
++	    break;
++
++	case 'D':
++            use_dns = 1;
++	    break;
++
+ 	case 'v':
+ 	    verbose++;
+ 	    break;
+@@ -218,11 +259,33 @@
+ 	usage();
+ 	return 1;
+     }
+-    
+-    memset(&outpacket, 0, sizeof(OPacket));
+-    outpacket.ip.ip_tos = 0;
+-    outpacket.ip.ip_v = IPVERSION;
+-    outpacket.ip.ip_id = 0;
++
++    /* Was there an error acquiring a socket? */
++    if (socket_errno)
++    {
++	errno = socket_errno;
++	perror("netselect: socket");
++	if (errno == EPERM) {
++		fprintf(stderr, "You should be root to run netselect.\n");
++		return 6;
++	}
++	return 5;
++    }
++
++    if ( use_icmp )  
++    {
++        memset(&icmppacket, 0, sizeof(IPacket));
++        icmppacket.ip.ip_tos = 0;
++        icmppacket.ip.ip_v = IPVERSION;
++        icmppacket.ip.ip_id = 0;
++    } 
++    else 
++    {
++        memset(&udppacket, 0, sizeof(OPacket));
++        udppacket.ip.ip_tos = 0;
++        udppacket.ip.ip_v = IPVERSION;
++        udppacket.ip.ip_id = 0;
++    }
+ 
+     ident = (getpid() & 0xffff) | 0x8000;
+     
+@@ -287,7 +350,10 @@
+ 		    host->retries++;
+ 		    
+ 		    host->num_out++;
+-		    send_probe(host->seq, ttl, &outpacket, host);
++                    if ( use_icmp ) 
++                        send_icmp_probe(host->seq, ttl, &icmppacket, host);
++                    else
++                        send_probe(host->seq, ttl, &udppacket, host);
+ 		    endcount = hostcount;
+ 		    sent_one = 1;
+ 		}
+@@ -349,7 +415,7 @@
+ 		}
+ 		host->total_lag += lag;
+ 		break;
+-		
++
+ 	    case ICMP_UNREACH_NET:
+ 	    case ICMP_UNREACH_HOST:
+ 	    case ICMP_UNREACH_PROTOCOL:
+@@ -364,7 +430,7 @@
+ 	    case ICMP_UNREACH_TOSNET:
+ 	    case ICMP_UNREACH_TOSHOST:
+ 		if (verbose >= 3)
+-		    fprintf(stderr, "unreachable!\n");
++		    fprintf(stderr, "unreachable! (blocking probes?)\n");
+ 		if (!host->invalid)
+ 		    validhosts--;
+ 		host->invalid = 1;
+@@ -380,7 +446,7 @@
+     if (verbose >= 1)
+ 	fprintf(stderr, "\n");
+     
+-    results(hosts, numhosts, num_score);
++    found = results(hosts, numhosts, num_score, use_dns);
+     
+     if (hosts)
+     {
+@@ -392,6 +458,8 @@
+ 	free(hosts);
+     }
+     
++    if (found == 0) 
++        return 1;
+     return 0;
+ }
+ 
+@@ -403,10 +471,23 @@
+  */
+ static HostData *add_host(HostData *hosts, int *numhosts,
+ 			  char *hostname, struct sockaddr_in *addr,
+-			  int max_ttl)
++			  char *dnsname, int max_ttl)
+ {
+     HostData *host;
+     
++    if (addr)
++    {
++      int hcount;
++      for (hcount = 0, host = hosts; hcount < *numhosts; hcount++, host++)
++	if (host->addr.sin_addr.s_addr == addr->sin_addr.s_addr)
++	{
++	  if (verbose >= 1)
++	    fprintf(stderr, "\nDuplicate address %s (%s, %s); keeping only under first name.\n",
++		    inet_ntoa(addr->sin_addr), host->hostname, hostname);
++	  return hosts;
++	}
++    }
++    
+     (*numhosts)++;
+     
+     if (!hosts)
+@@ -418,6 +499,7 @@
+     
+     memset(host, 0, sizeof(HostData));
+     host->hostname = hostname;
++    host->dnsname = dnsname;
+     host->shortname = un_url(hostname);
+     if (addr)
+ 	memcpy(&host->addr, addr, sizeof(*addr));
+@@ -549,7 +631,7 @@
+ 		result.addr.sin_family = AF_INET;
+ 		result.addr.sin_addr.s_addr = inet_addr(names[count]);
+ 		
+-		if (result.addr.sin_addr.s_addr != -1)
++		if (result.addr.sin_addr.s_addr != INADDR_NONE)
+ 		{
+ 		    write(pipes[1], &result, sizeof(result));
+ 		}
+@@ -643,13 +725,14 @@
+ 	    else
+ 	    {
+ 		/* got some kind of result back! */
++                char *dnsname = strdup(result.hostname);
+ 		if (result.broken)
+ 		{
+ 		    /* name lookup failed */
+ 		    char *simplename = un_url(result.hostname);
+ 		    
+ 		    hosts = add_host(hosts, numhosts, strdup(result.hostname),
+-				     NULL, max_ttl);
++				     NULL, dnsname, max_ttl);
+ 		    if (verbose >= 1)
+ 			fprintf(stderr, "\r%60s\r", "");
+ 		    fprintf(stderr, "netselect: unknown host %s\n", simplename);
+@@ -669,7 +752,7 @@
+ 			newhostname = strdup(result.hostname);
+ 		    
+ 		    hosts = add_host(hosts, numhosts, newhostname,
+-				     &result.addr, max_ttl);
++				     &result.addr, dnsname, max_ttl);
+ 		}
+ 	    }
+ 	}
+@@ -723,7 +806,7 @@
+     up->uh_sum = 0;
+     
+     if (verbose >= 4)
+-    	fprintf(stderr, "%-35s>>\n", host->shortname);
++    	fprintf(stderr, "%-35s(UDP)>>\n", host->shortname);
+ 
+     i = sendto(sndsock, op, sizeof(OPacket), 0,
+ 	       (struct sockaddr *)&host->addr, sizeof(host->addr));
+@@ -752,6 +835,77 @@
+     }
+ }
+ 
++uint16_t
++checksum (uint16_t *header, size_t len)
++{
++    uint32_t sum = 0;
++    int i;
++
++    for (i = 0; i < len / sizeof (uint16_t); i++)
++        sum += ntohs (header[i]);
++
++    return htons (~((sum >> 16) + (sum & 0xffff)));
++}
++
++static void send_icmp_probe(int seq, int ttl, IPacket *op, HostData *host)
++{
++    struct ip *ip = &op->ip;
++    struct icmp *icmp = &op->icmp;
++    struct timezone tz;
++    int i;
++
++    op->ip.ip_dst = host->addr.sin_addr;
++    op->seq = seq;
++    op->ttl = ttl;
++    gettimeofday(&op->tv, &tz);
++
++    ip->ip_off = 0;
++    ip->ip_hl = sizeof(*ip) >> 2;
++    ip->ip_p = IPPROTO_ICMP;
++    ip->ip_len = 0; /* kernel fills this in */
++    ip->ip_ttl = ttl;
++    ip->ip_v = IPVERSION;
++    ip->ip_id = htons(ident + seq);
++
++    icmp->icmp_type= ICMP_ECHO;
++    icmp->icmp_code = 0;
++    icmp->icmp_cksum = 0;
++    icmp->icmp_id = htons (ident);
++    icmp->icmp_seq = htons (seq); 
++    icmp->icmp_cksum = checksum((void *)icmp, sizeof(IPacket) - sizeof(struct ip)); 
++
++    if (verbose >= 4)
++    	fprintf(stderr, "%-35s(ICMP)>>\n", host->shortname);
++    if (verbose >= 5)
++        fprintf(stderr, "ICMP sequence: %i, identifier: %i\n", icmp->icmp_seq, icmp->icmp_id);
++
++    i = sendto(sndsock, op, sizeof(IPacket), 0,
++	       (struct sockaddr *)&host->addr, sizeof(host->addr));
++    if (i < 0 || i != sizeof(IPacket))
++    {
++	if (i < 0)
++	{
++	    switch (errno)
++	    {
++	    case ENETDOWN:
++	    case ENETUNREACH:
++	    case EHOSTDOWN:
++	    case EHOSTUNREACH:
++		if (verbose >= 3)
++		    fprintf(stderr, "unreachable or down!\n");
++		if (!host->invalid)
++		    validhosts--;
++		host->invalid = 1;
++		break;
++		
++	    default:
++		perror("sendto");
++	    }
++	}
++	fflush(stdout);
++    }
++}
++
+ 
+ static time_t deltaT(struct timeval *t1p, struct timeval *t2p)
+ {
+@@ -775,7 +929,7 @@
+ #if !defined(__GLIBC__)
+     int fromlen = sizeof(from);
+ #else				/* __GLIBC__ */
+-    size_t fromlen = sizeof(from);
++    socklen_t fromlen = sizeof(from);
+ #endif				/* __GLIBC__ */
+ 
+     FD_ZERO(&fds);
+@@ -830,8 +984,12 @@
+ 
+     type = icp->icmp_type;
+     code = icp->icmp_code;
++
++    if (verbose >= 5)
++        fprintf(stderr, "Received ICMP type: %i, code: %i, from %s\n", type, code, inet_ntoa(ip->ip_src) );
++
+     if ((type == ICMP_TIMXCEED && code == ICMP_TIMXCEED_INTRANS)
+-	|| type == ICMP_UNREACH)
++	|| type == ICMP_UNREACH || type == ICMP_ECHOREPLY )
+     {
+ 	struct ip *hip;
+ 	struct udphdr *up;
+@@ -839,14 +997,35 @@
+ 	hip = &icp->icmp_ip;
+ 	hlen = hip->ip_hl << 2;
+ 	up = (struct udphdr *) ((u_char *) hip + hlen);
++
+ 	
+ 	for (hcount = 0, host = hosts; hcount < numhosts; hcount++, host++)
+ 	{
+ 	    if (host->invalid) continue;
++
++            /* Valid ICMP echo reply packet */
++            if ( type == ICMP_ECHOREPLY &&
++                 ip->ip_src.s_addr == host->addr.sin_addr.s_addr &&
++                 icp->icmp_id == htons(ident) && 
++                 icp->icmp_seq == htons(host->seq) )
++            {
++		host->code = ICMP_UNREACH_PORT + 1; /* Behave like if a UDP packet was received even though we used ICMP */
++		return host;
++            }
++            /* Time exceeded reply to an ICMP echo request */
++            if ( type == ICMP_TIMXCEED &&
++                 hip->ip_dst.s_addr == host->addr.sin_addr.s_addr &&
++                 hip->ip_id == htons(ident+host->seq) )
++            {
++		host->code = -1; 
++		return host;
++            }
+ 	    
++            /* Valid reply to an UDP probe packet */
+ 	    if (hlen + 12 <= cc && hip->ip_p == IPPROTO_UDP &&
+ 		up->uh_sport == htons(ident) &&
+-		up->uh_dport == htons(port + host->seq))
++		up->uh_dport == htons(port + host->seq) &&
++		hip->ip_dst.s_addr == host->addr.sin_addr.s_addr)
+ 	    {
+ 		host->code = (type == ICMP_TIMXCEED ? -1 : code + 1);
+ 		return host;
+@@ -854,7 +1033,8 @@
+ 	}
+     }
+ 
+-    /* fprintf(stderr, "received an unknown packet!\n"); */
++    if (verbose >= 3)
++        fprintf(stderr, "received an unknown packet!\n"); 
+     return NULL;
+ }
+ 
+@@ -873,14 +1053,15 @@
+ static void usage(void)
+ {
+     fprintf(stderr,
+-	    "Usage: netselect [-v] [-vv] [-t min_tries] [-m max_ttl]"
+-	    " host [host...]\n");
++	    "Usage: netselect [-v|-vv|-vvv] [-I] [-m max_ttl] [-s servers] "
++	    "[-t min_tries] host ...\n");
+ }
+ 
+ 
+-static void results(HostData *hosts, int numhosts, int num_score)
++static int results(HostData *hosts, int numhosts, int num_score, int use_dns)
+ {
+-    int count, lowest_score, score;
++    int count, lowest_score, score, found_hosts = 0;
++    int desired_hosts = num_score;
+     HostData *host, *lowest_host;
+     
+     if (verbose >= 3)
+@@ -891,10 +1072,10 @@
+ 	for (count = 0, host = hosts; count < numhosts; count++, host++)
+ 	{
+ 	    if (!host->num_in || !host->num_out)
+-		printf("%-35s  %5u ms  %2d hops  %3d%% ok\n",
++		fprintf(stderr,"%-35s  %5u ms  %2d hops  %3d%% ok\n",
+ 		       host->hostname, 9999, host->hops_less_than, 0);
+ 	    else
+-		printf("%-35s  %5u ms  %2d hops  %3d%% ok (%2d/%2d) [%5d]\n",
++		fprintf(stderr,"%-35s  %5u ms  %2d hops  %3d%% ok (%2d/%2d) [%5d]\n",
+ 		       host->hostname, host->total_lag / host->num_in,
+ 		       host->hops_less_than,
+ 		       host->num_in * 100 / host->num_out,
+@@ -922,12 +1103,28 @@
+ 	if (!lowest_host)
+ 	    break;
+ 	    
+-	printf("%5d %s\n", lowest_score, lowest_host->hostname);
++        found_hosts++;
++        if (use_dns) {
++    	    printf("%5d %s\n", lowest_score, lowest_host->dnsname);
++        } else {
++    	    printf("%5d %s\n", lowest_score, lowest_host->hostname);
++        }
+ 	lowest_host->invalid = 1; /* skip this one next time */
+ 	
+ 	if (num_score > 0)
+ 	    num_score--;
+     }
++
++    /* Complain if we did not get as many hosts as we were asked for */
++    if (found_hosts < desired_hosts)  {
++        if ( found_hosts == 0 ) {
++            fprintf(stderr,"Did not found any valid hosts (you requested %2d)\n",  desired_hosts);
++        } else {
++            fprintf(stderr,"Only found %2d hosts out of %2d requested.\n", found_hosts, desired_hosts);
++        }
++    }
++
++    return found_hosts;
+ }
+ 
+ 

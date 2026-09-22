@@ -340,8 +340,8 @@ rm -f sources.list
 	echo "# want 'apt-get source' to work with most packages."
 	for MAIN in $MAIN_MIRRORS
 	do
-		echo "deb $MAIN $DISTRO main contrib non-free"
-		echo "# deb-src $MAIN $DISTRO main contrib non-free"
+		echo "deb $MAIN $DISTRO main contrib non-free non-free-firmware"
+		echo "# deb-src $MAIN $DISTRO main contrib non-free non-free-firmware"
 	done
 	
 	echo
@@ -349,8 +349,8 @@ rm -f sources.list
 	echo "# want 'apt-get source' to work with non-US packages."
 	for NON_US in $NON_US_MIRRORS
 	do
-		echo "deb $NON_US $DISTRO/non-US main contrib non-free"
-		echo "# deb-src $NON_US $DISTRO/non-US main contrib non-free"
+		echo "deb $NON_US $DISTRO/non-US main contrib non-free non-free-firmware"
+		echo "# deb-src $NON_US $DISTRO/non-US main contrib non-free non-free-firmware"
 	done
 ) >sources.list
 
