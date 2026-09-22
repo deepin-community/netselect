@@ -1,7 +1,6 @@
 /*
  * Netselect:
- *      Copyright (c) 1998-2001 by Avery Pennarun <apenwarr@gmail.com>
- *
+ *      Copyright (c) 1998-2001 by Avery Pennarun <apenwarr@worldvisions.ca>
  *
  * Traceroute:
  * Copyright (c) 1990, 1993
@@ -88,32 +87,14 @@ typedef struct
     struct timeval tv;		/* time packet left */
 } OPacket;
 
-/*
- * format of a (icmp) probe packet.
- */
-typedef struct
-{
-    struct ip ip;
-    struct icmp icmp;
-    u_char seq;			/* sequence number of this packet */
-    u_char ttl;			/* ttl packet left with */
-    struct timeval tv;		/* time packet left */
-}__attribute__((packed)) IPacket;
-
-
 
 /* 
  * currently-known information about a host
  */
 typedef struct
 {
-    char *hostname;		/* hostname as provided on command line 
-                                 * or host IP address if we get multiple IPs
-                                 * for a name */
+    char *hostname;		/* hostname as provided on command line */
     char *shortname;		/* hostname with any URL-type stuff removed */
-    char *dnsname;		/* DNS name of the host, matches hostname
-                                 * unless a host resolves to multiple IP
-                                 * addresses */
     struct sockaddr_in addr;	/* remote address */
 
     int invalid;		/* !=0 if we discard this host */
@@ -133,15 +114,13 @@ typedef struct
 /* prototypes for functions in this file */
 static HostData *add_host(HostData *host, int *numhosts,
 			  char *hostname, struct sockaddr_in *addr,
-                          char *dnsname, int max_ttl);
+			  int max_ttl);
 static char *un_url(char *orig);
 static char *fix_url(char *orig, char *hostname);
 static HostData *name_resolver(int *numhosts, int numnames, char **names,
 			       int max_ttl);
 
 static void send_probe(int seq, int ttl, OPacket *op,
-		       HostData *host);
-static void send_icmp_probe(int seq, int ttl, IPacket *op,
 		       HostData *host);
 static time_t deltaT(struct timeval *t1p, struct timeval *t2p);
 static HostData *wait_for_reply(HostData *hosts, int numhosts,
@@ -151,7 +130,7 @@ static HostData *packet_ok(HostData *hosts, int numhosts,
 				  struct sockaddr_in *from);
 static int choose_ttl(HostData *host);
 static void usage();
-static int results(HostData *hosts, int numhosts, int num_score, int use_dns);
+static void results(HostData *hosts, int numhosts, int num_score);
 static int host_score(HostData *host);
 
 #define INPACKET_SIZE    512
@@ -172,30 +151,18 @@ int main(int argc, char **argv)
     extern char *optarg;
     extern int optind;
     int hostcount, startcount, endcount = 0, sent_one, lag, min_lag = 100;
-    int ch, seq, ttl, max_ttl = 30, num_score = 1;
-    int use_icmp, use_dns, found = 0;
-    unsigned int min_tries = 10;
+    int ch, seq, ttl, max_ttl = 30, min_tries = 10, num_score = 1;
     struct timeval now;
     struct timezone tz;
-    OPacket udppacket;          /* last output (udp) packet */
-    IPacket icmppacket;          /* last output (udp) packet */
-    
+    OPacket outpacket;          /* last output (udp) packet */
     HostData *host, *hosts;
     int numhosts, delay, must_continue, count;
-    int socket_errno = 0;
-
-    /* we might have cap_net_raw on linux, instead print a tip if and when
-       sendto fails
-    if (geteuid () != 0)
-        fprintf (stderr, "%s: root privileges required\n", argv[0]);
-    */
 
     if ((rcvsock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) < 0
      || (sndsock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW )) < 0)
     {
-	/* Capture errno so that command-line options can be parsed.
-	   We delay reporting an error until this has happened. */
-	socket_errno = errno;
+	perror("netselect: socket");
+	return 5;
     }
 
     /* drop root privileges as soon as possible! */
@@ -206,7 +173,7 @@ int main(int argc, char **argv)
 #ifdef __EMX__
     _response(&argc,&argv);
 #endif
-    while ((ch = getopt(argc, argv, "s:t:m:IDv?")) != EOF)
+    while ((ch = getopt(argc, argv, "s:t:m:v?")) != EOF)
     {
 	switch (ch)
 	{
@@ -232,14 +199,6 @@ int main(int argc, char **argv)
 	    }
 	    break;
 
-	case 'I':
-            use_icmp = 1;
-	    break;
-
-	case 'D':
-            use_dns = 1;
-	    break;
-
 	case 'v':
 	    verbose++;
 	    break;
@@ -259,33 +218,11 @@ int main(int argc, char **argv)
 	usage();
 	return 1;
     }
-
-    /* Was there an error acquiring a socket? */
-    if (socket_errno)
-    {
-	errno = socket_errno;
-	perror("netselect: socket");
-	if (errno == EPERM) {
-		fprintf(stderr, "You should be root to run netselect.\n");
-		return 6;
-	}
-	return 5;
-    }
-
-    if ( use_icmp )  
-    {
-        memset(&icmppacket, 0, sizeof(IPacket));
-        icmppacket.ip.ip_tos = 0;
-        icmppacket.ip.ip_v = IPVERSION;
-        icmppacket.ip.ip_id = 0;
-    } 
-    else 
-    {
-        memset(&udppacket, 0, sizeof(OPacket));
-        udppacket.ip.ip_tos = 0;
-        udppacket.ip.ip_v = IPVERSION;
-        udppacket.ip.ip_id = 0;
-    }
+    
+    memset(&outpacket, 0, sizeof(OPacket));
+    outpacket.ip.ip_tos = 0;
+    outpacket.ip.ip_v = IPVERSION;
+    outpacket.ip.ip_id = 0;
 
     ident = (getpid() & 0xffff) | 0x8000;
     
@@ -350,10 +287,7 @@ int main(int argc, char **argv)
 		    host->retries++;
 		    
 		    host->num_out++;
-                    if ( use_icmp ) 
-                        send_icmp_probe(host->seq, ttl, &icmppacket, host);
-                    else
-                        send_probe(host->seq, ttl, &udppacket, host);
+		    send_probe(host->seq, ttl, &outpacket, host);
 		    endcount = hostcount;
 		    sent_one = 1;
 		}
@@ -415,7 +349,7 @@ int main(int argc, char **argv)
 		}
 		host->total_lag += lag;
 		break;
-
+		
 	    case ICMP_UNREACH_NET:
 	    case ICMP_UNREACH_HOST:
 	    case ICMP_UNREACH_PROTOCOL:
@@ -430,7 +364,7 @@ int main(int argc, char **argv)
 	    case ICMP_UNREACH_TOSNET:
 	    case ICMP_UNREACH_TOSHOST:
 		if (verbose >= 3)
-		    fprintf(stderr, "unreachable! (blocking probes?)\n");
+		    fprintf(stderr, "unreachable!\n");
 		if (!host->invalid)
 		    validhosts--;
 		host->invalid = 1;
@@ -446,7 +380,7 @@ int main(int argc, char **argv)
     if (verbose >= 1)
 	fprintf(stderr, "\n");
     
-    found = results(hosts, numhosts, num_score, use_dns);
+    results(hosts, numhosts, num_score);
     
     if (hosts)
     {
@@ -458,8 +392,6 @@ int main(int argc, char **argv)
 	free(hosts);
     }
     
-    if (found == 0) 
-        return 1;
     return 0;
 }
 
@@ -471,22 +403,9 @@ int main(int argc, char **argv)
  */
 static HostData *add_host(HostData *hosts, int *numhosts,
 			  char *hostname, struct sockaddr_in *addr,
-			  char *dnsname, int max_ttl)
+			  int max_ttl)
 {
     HostData *host;
-    
-    if (addr)
-    {
-      int hcount;
-      for (hcount = 0, host = hosts; hcount < *numhosts; hcount++, host++)
-	if (host->addr.sin_addr.s_addr == addr->sin_addr.s_addr)
-	{
-	  if (verbose >= 1)
-	    fprintf(stderr, "\nDuplicate address %s (%s, %s); keeping only under first name.\n",
-		    inet_ntoa(addr->sin_addr), host->hostname, hostname);
-	  return hosts;
-	}
-    }
     
     (*numhosts)++;
     
@@ -499,7 +418,6 @@ static HostData *add_host(HostData *hosts, int *numhosts,
     
     memset(host, 0, sizeof(HostData));
     host->hostname = hostname;
-    host->dnsname = dnsname;
     host->shortname = un_url(hostname);
     if (addr)
 	memcpy(&host->addr, addr, sizeof(*addr));
@@ -631,7 +549,7 @@ static HostData *name_resolver(int *numhosts, int numnames, char **names,
 		result.addr.sin_family = AF_INET;
 		result.addr.sin_addr.s_addr = inet_addr(names[count]);
 		
-		if (result.addr.sin_addr.s_addr != INADDR_NONE)
+		if (result.addr.sin_addr.s_addr != -1)
 		{
 		    write(pipes[1], &result, sizeof(result));
 		}
@@ -725,14 +643,13 @@ static HostData *name_resolver(int *numhosts, int numnames, char **names,
 	    else
 	    {
 		/* got some kind of result back! */
-                char *dnsname = strdup(result.hostname);
 		if (result.broken)
 		{
 		    /* name lookup failed */
 		    char *simplename = un_url(result.hostname);
 		    
 		    hosts = add_host(hosts, numhosts, strdup(result.hostname),
-				     NULL, dnsname, max_ttl);
+				     NULL, max_ttl);
 		    if (verbose >= 1)
 			fprintf(stderr, "\r%60s\r", "");
 		    fprintf(stderr, "netselect: unknown host %s\n", simplename);
@@ -752,7 +669,7 @@ static HostData *name_resolver(int *numhosts, int numnames, char **names,
 			newhostname = strdup(result.hostname);
 		    
 		    hosts = add_host(hosts, numhosts, newhostname,
-				     &result.addr, dnsname, max_ttl);
+				     &result.addr, max_ttl);
 		}
 	    }
 	}
@@ -806,82 +723,11 @@ static void send_probe(int seq, int ttl, OPacket *op, HostData *host)
     up->uh_sum = 0;
     
     if (verbose >= 4)
-    	fprintf(stderr, "%-35s(UDP)>>\n", host->shortname);
+    	fprintf(stderr, "%-35s>>\n", host->shortname);
 
     i = sendto(sndsock, op, sizeof(OPacket), 0,
 	       (struct sockaddr *)&host->addr, sizeof(host->addr));
     if (i < 0 || i != sizeof(OPacket))
-    {
-	if (i < 0)
-	{
-	    switch (errno)
-	    {
-	    case ENETDOWN:
-	    case ENETUNREACH:
-	    case EHOSTDOWN:
-	    case EHOSTUNREACH:
-		if (verbose >= 3)
-		    fprintf(stderr, "unreachable or down!\n");
-		if (!host->invalid)
-		    validhosts--;
-		host->invalid = 1;
-		break;
-		
-	    default:
-		perror("sendto");
-	    }
-	}
-	fflush(stdout);
-    }
-}
-
-uint16_t
-checksum (uint16_t *header, size_t len)
-{
-    uint32_t sum = 0;
-    int i;
-
-    for (i = 0; i < len / sizeof (uint16_t); i++)
-        sum += ntohs (header[i]);
-
-    return htons (~((sum >> 16) + (sum & 0xffff)));
-}
-
-static void send_icmp_probe(int seq, int ttl, IPacket *op, HostData *host)
-{
-    struct ip *ip = &op->ip;
-    struct icmp *icmp = &op->icmp;
-    struct timezone tz;
-    int i;
-
-    op->ip.ip_dst = host->addr.sin_addr;
-    op->seq = seq;
-    op->ttl = ttl;
-    gettimeofday(&op->tv, &tz);
-
-    ip->ip_off = 0;
-    ip->ip_hl = sizeof(*ip) >> 2;
-    ip->ip_p = IPPROTO_ICMP;
-    ip->ip_len = 0; /* kernel fills this in */
-    ip->ip_ttl = ttl;
-    ip->ip_v = IPVERSION;
-    ip->ip_id = htons(ident + seq);
-
-    icmp->icmp_type= ICMP_ECHO;
-    icmp->icmp_code = 0;
-    icmp->icmp_cksum = 0;
-    icmp->icmp_id = htons (ident);
-    icmp->icmp_seq = htons (seq); 
-    icmp->icmp_cksum = checksum((void *)icmp, sizeof(IPacket) - sizeof(struct ip)); 
-
-    if (verbose >= 4)
-    	fprintf(stderr, "%-35s(ICMP)>>\n", host->shortname);
-    if (verbose >= 5)
-        fprintf(stderr, "ICMP sequence: %i, identifier: %i\n", icmp->icmp_seq, icmp->icmp_id);
-
-    i = sendto(sndsock, op, sizeof(IPacket), 0,
-	       (struct sockaddr *)&host->addr, sizeof(host->addr));
-    if (i < 0 || i != sizeof(IPacket))
     {
 	if (i < 0)
 	{
@@ -929,7 +775,7 @@ static HostData *wait_for_reply(HostData *hosts, int numhosts,
 #if !defined(__GLIBC__)
     int fromlen = sizeof(from);
 #else				/* __GLIBC__ */
-    socklen_t fromlen = sizeof(from);
+    size_t fromlen = sizeof(from);
 #endif				/* __GLIBC__ */
 
     FD_ZERO(&fds);
@@ -984,12 +830,8 @@ static HostData *packet_ok(HostData *hosts, int numhosts,
 
     type = icp->icmp_type;
     code = icp->icmp_code;
-
-    if (verbose >= 5)
-        fprintf(stderr, "Received ICMP type: %i, code: %i, from %s\n", type, code, inet_ntoa(ip->ip_src) );
-
     if ((type == ICMP_TIMXCEED && code == ICMP_TIMXCEED_INTRANS)
-	|| type == ICMP_UNREACH || type == ICMP_ECHOREPLY )
+	|| type == ICMP_UNREACH)
     {
 	struct ip *hip;
 	struct udphdr *up;
@@ -997,35 +839,14 @@ static HostData *packet_ok(HostData *hosts, int numhosts,
 	hip = &icp->icmp_ip;
 	hlen = hip->ip_hl << 2;
 	up = (struct udphdr *) ((u_char *) hip + hlen);
-
 	
 	for (hcount = 0, host = hosts; hcount < numhosts; hcount++, host++)
 	{
 	    if (host->invalid) continue;
-
-            /* Valid ICMP echo reply packet */
-            if ( type == ICMP_ECHOREPLY &&
-                 ip->ip_src.s_addr == host->addr.sin_addr.s_addr &&
-                 icp->icmp_id == htons(ident) && 
-                 icp->icmp_seq == htons(host->seq) )
-            {
-		host->code = ICMP_UNREACH_PORT + 1; /* Behave like if a UDP packet was received even though we used ICMP */
-		return host;
-            }
-            /* Time exceeded reply to an ICMP echo request */
-            if ( type == ICMP_TIMXCEED &&
-                 hip->ip_dst.s_addr == host->addr.sin_addr.s_addr &&
-                 hip->ip_id == htons(ident+host->seq) )
-            {
-		host->code = -1; 
-		return host;
-            }
 	    
-            /* Valid reply to an UDP probe packet */
 	    if (hlen + 12 <= cc && hip->ip_p == IPPROTO_UDP &&
 		up->uh_sport == htons(ident) &&
-		up->uh_dport == htons(port + host->seq) &&
-		hip->ip_dst.s_addr == host->addr.sin_addr.s_addr)
+		up->uh_dport == htons(port + host->seq))
 	    {
 		host->code = (type == ICMP_TIMXCEED ? -1 : code + 1);
 		return host;
@@ -1033,8 +854,7 @@ static HostData *packet_ok(HostData *hosts, int numhosts,
 	}
     }
 
-    if (verbose >= 3)
-        fprintf(stderr, "received an unknown packet!\n"); 
+    /* fprintf(stderr, "received an unknown packet!\n"); */
     return NULL;
 }
 
@@ -1053,15 +873,14 @@ static int choose_ttl(HostData *host)
 static void usage(void)
 {
     fprintf(stderr,
-	    "Usage: netselect [-v|-vv|-vvv] [-I] [-m max_ttl] [-s servers] "
-	    "[-t min_tries] host ...\n");
+	    "Usage: netselect [-v] [-vv] [-t min_tries] [-m max_ttl]"
+	    " host [host...]\n");
 }
 
 
-static int results(HostData *hosts, int numhosts, int num_score, int use_dns)
+static void results(HostData *hosts, int numhosts, int num_score)
 {
-    int count, lowest_score, score, found_hosts = 0;
-    int desired_hosts = num_score;
+    int count, lowest_score, score;
     HostData *host, *lowest_host;
     
     if (verbose >= 3)
@@ -1072,10 +891,10 @@ static int results(HostData *hosts, int numhosts, int num_score, int use_dns)
 	for (count = 0, host = hosts; count < numhosts; count++, host++)
 	{
 	    if (!host->num_in || !host->num_out)
-		fprintf(stderr,"%-35s  %5u ms  %2d hops  %3d%% ok\n",
+		printf("%-35s  %5u ms  %2d hops  %3d%% ok\n",
 		       host->hostname, 9999, host->hops_less_than, 0);
 	    else
-		fprintf(stderr,"%-35s  %5u ms  %2d hops  %3d%% ok (%2d/%2d) [%5d]\n",
+		printf("%-35s  %5u ms  %2d hops  %3d%% ok (%2d/%2d) [%5d]\n",
 		       host->hostname, host->total_lag / host->num_in,
 		       host->hops_less_than,
 		       host->num_in * 100 / host->num_out,
@@ -1103,28 +922,12 @@ static int results(HostData *hosts, int numhosts, int num_score, int use_dns)
 	if (!lowest_host)
 	    break;
 	    
-        found_hosts++;
-        if (use_dns) {
-    	    printf("%5d %s\n", lowest_score, lowest_host->dnsname);
-        } else {
-    	    printf("%5d %s\n", lowest_score, lowest_host->hostname);
-        }
+	printf("%5d %s\n", lowest_score, lowest_host->hostname);
 	lowest_host->invalid = 1; /* skip this one next time */
 	
 	if (num_score > 0)
 	    num_score--;
     }
-
-    /* Complain if we did not get as many hosts as we were asked for */
-    if (found_hosts < desired_hosts)  {
-        if ( found_hosts == 0 ) {
-            fprintf(stderr,"Did not found any valid hosts (you requested %2d)\n",  desired_hosts);
-        } else {
-            fprintf(stderr,"Only found %2d hosts out of %2d requested.\n", found_hosts, desired_hosts);
-        }
-    }
-
-    return found_hosts;
 }
 
 
@@ -1140,4 +943,3 @@ static int host_score(HostData *host)
     
     return score;
 }
-

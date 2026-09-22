@@ -12,5 +12,4 @@
 #	$(MAKE) netselect
 
 override_dh_auto_install:
-	$(MAKE) PREFIX=debian/tmp/usr \
-		MANDEST=debian/tmp/usr/share/man/man1 install
+	$(MAKE) PREFIX=debian/tmp/usr install

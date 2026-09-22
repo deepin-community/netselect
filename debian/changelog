@@ -1,8 +1,81 @@
-netselect (0.3.ds1-29deepin) unstable; urgency=medium
+netselect (0.3.ds1-31) unstable; urgency=medium
 
-  * add setuid
+  * Move repository to Salsa to allow for team maintenance. After trying to
+    restore the repository information and log from Alioth (SVN) it turns
+    out it is much simpler and efficient to import all the packages using
+    gbp. The old repository is nevertheless avialable in 'netselect-old' in
+    case anything from it is required (I doubt it)
+  * Acknowledge NMUs (Closes: #1089398, Closes: #1007410, #993416, #809034)
+  * debian/control:
+     - Add VCS fields pointing to Salsa, where the code now resides
+     - Remove debian/compat, declare dependency in debian/control
+     - Remove trailing whitespaces (lintian fix)
+  * debian/patches/debian.patch:
+     - Modify netslect-apt to use 'stable-security' instead of
+       'stable/updates' as the format changed since Bullseye several
+       years ago (Closes: #1012313)
+     - Add also non-free-firmware when --non-free is selected
+       (Closes: #1056907)
+     - Add 'forky' (Debian 14) as a valid release name
+  * debian/patches/debian-ipv6-support.patch: Add patch providing IPv6 support
+    thanks to Bob Ham for creating it (Closes: #407767)
 
- -- Packages <zs@deepin.com>  Wed, 05 Dec 2018 15:21:21 +0800
+ -- Javier Fernández-Sanguino Peña <jfs@debian.org>  Thu, 09 Jan 2025 16:57:18 +0100
+
+netselect (0.3.ds1-30.3) unstable; urgency=medium
+
+  * Non-maintainer upload.
+  * Make requirement for root when building the package explicit.
+    (Closes: #1089398)
+
+ -- Niels Thykier <niels@thykier.net>  Wed, 01 Jan 2025 11:35:50 +0000
+
+netselect (0.3.ds1-30.2) unstable; urgency=medium
+
+  * Non-maintainer upload
+  * Convert to source format 3.0 (Closes: #1007410, #993416)
+  * Drop README.source, which is obvious with the 3.0 quilt series
+  * Drop unused csum.c from Debian additions
+  * d/copyright: Convert to machine-readable format
+
+ -- Bastian Germann <bage@debian.org>  Sun, 17 Mar 2024 17:12:45 +0000
+
+netselect (0.3.ds1-30.1) unstable; urgency=medium
+
+  * Non-maintainer upload
+  * Drop Vcs-* fields (Closes: #809034)
+  * Move upstream repo info from d/README.source to d/copyright
+
+ -- Bastian Germann <bage@debian.org>  Tue, 14 Feb 2023 21:10:32 +0100
+
+netselect (0.3.ds1-30) unstable; urgency=high
+
+  * netselect-apt:
+     - debian/control: Add ca-certificates as a dependency as it is required
+       to validate Debian's certificates. Otherwise the wget call will fail
+       when accessing www.debian.org as it now redirects from http to https
+       (Closes: #999711)
+     - Add the Debian releases which were missing: buster, bullseye, bookworm
+       and trixie
+     - Move the code of checking root permissions after the parsing of options
+       to allow the --help option to be run without being root
+       (Closes: #768568)
+  * Move to debhelper compatibility version 13
+  * debian/control: Move to Standards Version 4.5.1
+  * debian/po/{fr,de}.po: Convert to UTF-8 (lintian fix)
+
+ -- Javier Fernández-Sanguino Peña <jfs@debian.org>  Mon, 06 Dec 2021 19:36:30 +0100
+
+netselect (0.3.ds1-29) unstable; urgency=high
+
+  * netselect-apt:
+    - Fix bug that makes it output some hosts with negative value (Closes: 920907)
+    - Fix bug in the Pelr parsing which prevented it from processing properly
+      the mirrors listed in the Debian website (Closes: 989674)
+  * debian/control: Move curl to depends as it is required by netselect-apt
+   (Closes: 788793)
+
+ -- Javier Fernández-Sanguino Peña <jfs@debian.org>  Sun, 04 Jul 2021 23:04:35 +0200
 
 netselect (0.3.ds1-28) unstable; urgency=medium
 
@@ -25,12 +98,12 @@ netselect (0.3.ds1-27) unstable; urgency=medium
 
 netselect (0.3.ds1-26) unstable; urgency=medium
 
-  * netselect-apt: Apply patch provided by Ben Wong in order to 
+  * netselect-apt: Apply patch provided by Ben Wong in order to
     fix some bugs
      - Add 'jessie' to netselect to make it possible to search mirrors
        of that codename (Closes: #713838)
-     - Ignore corrupted results (negative score) and throw them out. 
-       Netselect does not handle gracefully mirrors which use 
+     - Ignore corrupted results (negative score) and throw them out.
+       Netselect does not handle gracefully mirrors which use
        a Round Robin DNS (see bug #755238).
        The fix prevents netselect-apt from selecting mirrors with a '-'
        in some cases (Closes: #750952)
@@ -50,7 +123,7 @@ netselect (0.3.ds1-25) unstable; urgency=low
 
 netselect (0.3.ds1-24) unstable; urgency=low
 
-  * netselect-apt: 
+  * netselect-apt:
      - modify regular expression to parse newest mirrors list with
        rel="nofollow" in href links. Thanks to "Nameless" for the patch
        (Closes: #667985, #665876)
@@ -73,7 +146,7 @@ netselect (0.3.ds1-23) unstable; urgency=low
 netselect (0.3.ds1-22) unstable; urgency=low
 
   * netselect:
-     - Fix an alignment bug in netselect.c, the struct icmp might be 
+     - Fix an alignment bug in netselect.c, the struct icmp might be
      padded to a 64 byte boundary leaving the ICMP_TYPE filled in by 0s
      (ICMP_REPLY). Thanks for Dan Merillat for the patch (Closes: 645703)
   * netselect.1:
@@ -117,10 +190,10 @@ netselect (0.3.ds1-19) unstable; urgency=low
       the fastest hosts which can be accessed through the defined protocol.
       Tests are done using curl, and ensure that the hosts HTTP or FTP requests.
       This makes use of the '-s' option in netselect in a way similar to
-      what was requested in #117265. The fastests servers are listed 
+      what was requested in #117265. The fastests servers are listed
       in addition to the server chosen after verifying they are reachable
       (Closes: #117265)
-  * netselect-apt.1: 
+  * netselect-apt.1:
     - Document behaviour and the new option (-t) in the manpage.
   * debian/control:
     - Add 'curl' as Recommended for netselect-apt
@@ -137,7 +210,7 @@ netselect (0.3.ds1-18) unstable; urgency=low
 
 netselect (0.3.ds1-17) unstable; urgency=low
 
-  * netselect.c: 
+  * netselect.c:
       - Add a new -D option to force netselect to provide, if required,
         the DNS names for hosts that resolve to multiple IP addresses.
         Modify the code so that the dnsname is kept on the host struct
@@ -147,7 +220,7 @@ netselect (0.3.ds1-17) unstable; urgency=low
         the number of hosts and also return with error 1 if no hosts
         are found. This helps clarify the situation when all the probed
         hosts are considered invalid and no one is returned (Closes: 467303)
-  * netselect-apt: 
+  * netselect-apt:
       - Make the script more robust by having it check and detect some common
         issues when running netselect:
         *  No hosts are found to use with netselect, due to an incorrect file
@@ -160,7 +233,7 @@ netselect (0.3.ds1-17) unstable; urgency=low
         introduced is always a name and not an IP address as many Debian
         servers use DNS round robin and the servers cannot be accessed
         using an IP address (Closes: 420252)
-      - Use dpkg-architecture if available, otherwise fall back to 
+      - Use dpkg-architecture if available, otherwise fall back to
         "dpkg --print-architecture" instead (Closes: 609342)
       - Add 'wheezy' as a valid distribution (Closes: 623180)
    * netselect.1:
@@ -190,8 +263,8 @@ netselect (0.3.ds1-15) unstable; urgency=low
   * netselect:
       - Implement a -I option to make netselect use ICMP probes instead of UDP.
         This option is useful to test servers when there is some element
-        that does not allow traceroute tests in the intermediate path 
-        (including the local computer, through it's firewall).  
+        that does not allow traceroute tests in the intermediate path
+        (including the local computer, through it's firewall).
         (Closes: 601227, 217256, 384218)
       - Do not printout verbose messages detailing hosts to stdout but
         to stderr
@@ -201,7 +274,7 @@ netselect (0.3.ds1-15) unstable; urgency=low
        DNS names in hosts.
   * netselect-apt:
      - Introduce a way to provide options to netselect through -O
-     - Check if netselect exists 
+     - Check if netselect exists
      - Abort if not being run as root and netselect is not setuid
      - Use -I per default as many debian mirrors do not actually allow
        traceroute tests
@@ -209,10 +282,10 @@ netselect (0.3.ds1-15) unstable; urgency=low
        gets thrown out as we do not need it (but the user might have
        set it with -v calls in -O)
      - Stricter filtering of netselect output to prevent picking up
-       wrong data by mistake 
+       wrong data by mistake
   * debian/netselect.README.Debian: More information on why netselect
     needs to be run as ROOT.
-  * debian/control: 
+  * debian/control:
       - Update Homepage to github
       - Update SVN-Browse to github, keep the URL of collab-main
         in debian/README.source
@@ -298,12 +371,12 @@ netselect (0.3.ds1-12) unstable; urgency=low
   * Update po-debconf template translation (ja.po) (Closes: #463242)
   * [INTL:fi] Finnish translation of the debconf templates (Closes:
     #469536)
-  * Patch from Lionel Elie Mamane to not limit hosts to 256 (Closes: #431928) 
-  * Patch from Lionel Elie Mamane to detect duplicate hosts 
-  * Better document INFILE usage in netselect-apt.1 
-  * Import into collab-qa svn repo, vcs-* fields added accordingly 
+  * Patch from Lionel Elie Mamane to not limit hosts to 256 (Closes: #431928)
+  * Patch from Lionel Elie Mamane to detect duplicate hosts
+  * Better document INFILE usage in netselect-apt.1
+  * Import into collab-qa svn repo, vcs-* fields added accordingly
   * Remove woody from netselect-apt{,1} and add lenny to manpage
-  * Fix lintian complaints (update s-v, do not ignore make errors) 
+  * Fix lintian complaints (update s-v, do not ignore make errors)
 
  -- Filippo Giunchedi <filippo@debian.org>  Sat, 08 Mar 2008 10:31:47 +0100
 
@@ -428,7 +501,7 @@ netselect (0.3-4) unstable; urgency=low
 
  -- Avery Pennarun <apenwarr@debian.org>  Tue,  6 Nov 2001 21:02:36 -0500
 
-  
+
 netselect (0.3-3) unstable; urgency=low
 
   * Don't sudo if we think we're root so we can build with fakeroot;
@@ -436,24 +509,24 @@ netselect (0.3-3) unstable; urgency=low
 
  -- Avery Pennarun <apenwarr@debian.org>  Wed,  5 Sep 2001 13:49:45 -0400
 
-  
+
 netselect (0.3-2) unstable; urgency=low
 
   * Add a build-depends for debhelper; closes: #110972.
 
  -- Avery Pennarun <apenwarr@debian.org>  Mon,  3 Sep 2001 15:46:44 -0400
-  
+
 
 netselect (0.3-1) unstable; urgency=low
-  
+
   * New upstream version with many bug fixes.  closes: #56432, #71836.
-  
+
   * Added a new netselect-apt script, which downloads the list of mirrors
      automatically.  Thus we don't need the long-outdated debian-ftp-mirrors
      example file.  closes: #61747, #66827, #67200, #71836.
-    
+
   * Removed blank line from package description.  closes: #109451.
-  
+
   * Removed dh_suidregister and added a Conflicts: with the old suidregister
      package.
 
