@@ -1,8 +1,39 @@
-netselect (0.3.ds1-29deepin) unstable; urgency=medium
+netselect (0.3.ds1-30.1) unstable; urgency=medium
 
-  * add setuid
+  * Non-maintainer upload
+  * Drop Vcs-* fields (Closes: #809034)
+  * Move upstream repo info from d/README.source to d/copyright
 
- -- Packages <zs@deepin.com>  Wed, 05 Dec 2018 15:21:21 +0800
+ -- Bastian Germann <bage@debian.org>  Tue, 14 Feb 2023 21:10:32 +0100
+
+netselect (0.3.ds1-30) unstable; urgency=high
+
+  * netselect-apt: 
+     - debian/control: Add ca-certificates as a dependency as it is required
+       to validate Debian's certificates. Otherwise the wget call will fail
+       when accessing www.debian.org as it now redirects from http to https
+       (Closes: #999711)
+     - Add the Debian releases which were missing: buster, bullseye, bookworm
+       and trixie
+     - Move the code of checking root permissions after the parsing of options
+       to allow the --help option to be run without being root 
+       (Closes: #768568)
+  * Move to debhelper compatibility version 13
+  * debian/control: Move to Standards Version 4.5.1
+  * debian/po/{fr,de}.po: Convert to UTF-8 (lintian fix)
+
+ -- Javier Fernández-Sanguino Peña <jfs@debian.org>  Mon, 06 Dec 2021 19:36:30 +0100
+
+netselect (0.3.ds1-29) unstable; urgency=high
+
+  * netselect-apt:
+    - Fix bug that makes it output some hosts with negative value (Closes: 920907)
+    - Fix bug in the Pelr parsing which prevented it from processing properly
+      the mirrors listed in the Debian website (Closes: 989674)
+  * debian/control: Move curl to depends as it is required by netselect-apt
+   (Closes: 788793)
+
+ -- Javier Fernández-Sanguino Peña <jfs@debian.org>  Sun, 04 Jul 2021 23:04:35 +0200
 
 netselect (0.3.ds1-28) unstable; urgency=medium
 

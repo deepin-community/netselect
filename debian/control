@@ -2,11 +2,8 @@ Source: netselect
 Section: net
 Priority: optional
 Maintainer: Javier Fernández-Sanguino Peña <jfs@debian.org>
-Standards-Version: 3.9.3
-Build-Depends: debhelper (>= 6), po-debconf
-VCS-Git: git://github.com/apenwarr/netselect.git
-VCS-Browser: http://github.com/apenwarr/netselect
-VCS-Svn: svn://svn.debian.org/svn/collab-maint/deb-maint/netselect/trunk
+Standards-Version: 4.5.1
+Build-Depends: debhelper (>= 13), po-debconf
 Homepage: http://github.com/apenwarr/netselect
 
 Package: netselect
@@ -22,8 +19,7 @@ Description: speed tester for choosing a fast network server
 
 Package: netselect-apt
 Architecture: all
-Depends: wget, netselect (>= 0.3.ds1-17), ${misc:Depends}
-Recommends: curl
+Depends: wget, netselect (>= 0.3.ds1-17), curl, ca-certificates, ${misc:Depends}
 Enhances: apt
 Suggests: dpkg-dev
 Description: speed tester for choosing a fast Debian mirror

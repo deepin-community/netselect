@@ -1,7 +1,7 @@
 This is the Debian GNU/Linux packaged version of netselect.  It was written and
 then Debian-packaged by Avery Pennarun <apenwarr@nit.ca>.
 It was downloaded from:
-http://people.nit.ca/~apenwarr/netselect/index.html
+https://github.com/apenwarr/netselect
 It was derived from Van Jacobson's traceroute, and shares its license, which
 follows:
 
