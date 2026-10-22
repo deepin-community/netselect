@@ -4,6 +4,7 @@ Priority: optional
 Maintainer: Javier Fernández-Sanguino Peña <jfs@debian.org>
 Standards-Version: 4.5.1
 Build-Depends: debhelper (>= 13), po-debconf
+Rules-Requires-Root: binary-targets
 Homepage: http://github.com/apenwarr/netselect
 
 Package: netselect
